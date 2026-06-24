@@ -1,39 +1,66 @@
 from __future__ import annotations
 
-from .coordinate_system import dna_location_to_blender
+from .blend_shape_builder import apply_blend_shape_deltas, reset_shape_key_values
+from .coordinate_system import dna_location_to_blender, dna_uv_to_blender
+from .dna_loader import _open_reader
 from .lod import infer_lod_index
 from .scene_model import DNAAsset, MeshSpec
 
 
-def create_mesh_objects(asset: DNAAsset, armature_object=None, collection=None) -> list:
+def create_mesh_objects(asset: DNAAsset, armature_object=None, collection=None, populate_blend_shapes: bool = False, binding_paths: list[str] | None = None) -> list:
     import bpy
 
     created = []
+    reader = _open_reader(asset.path, binding_paths) if populate_blend_shapes and binding_paths else None
     for spec in asset.meshes:
         obj = create_mesh_object(asset, spec, collection=collection)
         if obj is None:
             continue
         if armature_object is not None:
             bind_mesh_to_armature(obj, armature_object, asset=asset, spec=spec)
+        if reader is not None:
+            apply_blend_shape_deltas(reader, obj, spec.index, spec.blend_shape_channels)
         created.append(obj)
     return created
 
 
-def create_mesh_object(asset: DNAAsset, spec: MeshSpec, collection=None):
+def create_head_mesh_objects(asset: DNAAsset, armature_object, collection=None, character_name: str | None = None, binding_paths: list[str] | None = None) -> list:
+    import bpy
+
+    character = character_name or asset.character_name
+    created = []
+    reader = _open_reader(asset.path, binding_paths) if binding_paths else None
+    for spec in asset.meshes:
+        obj = create_mesh_object(asset, spec, collection=collection, object_name_prefix=f"MH_{character}_head")
+        if obj is None:
+            continue
+        bind_mesh_to_armature(obj, armature_object, asset=asset, spec=spec)
+        obj["mhblender_character"] = character
+        obj["mhblender_mesh_role"] = "head"
+        if reader is not None:
+            apply_blend_shape_deltas(reader, obj, spec.index, spec.blend_shape_channels)
+        created.append(obj)
+    return created
+
+
+def create_mesh_object(asset: DNAAsset, spec: MeshSpec, collection=None, object_name_prefix: str | None = None):
     import bpy
 
     if not spec.vertices:
         return None
 
-    mesh_data = bpy.data.meshes.new(f"MH_{asset.character_name}_{spec.name}_Mesh")
+    prefix = object_name_prefix or f"MH_{asset.character_name}"
+    mesh_data = bpy.data.meshes.new(f"{prefix}_{spec.name}_Mesh")
     vertices = [dna_location_to_blender(vertex) for vertex in spec.vertices]
     faces = spec.faces
     mesh_data.from_pydata(vertices, [], faces)
+    _apply_mesh_uvs(mesh_data, spec)
     mesh_data.update()
 
-    obj = bpy.data.objects.new(f"MH_{asset.character_name}_{spec.name}", mesh_data)
+    obj = bpy.data.objects.new(f"{prefix}_{spec.name}", mesh_data)
     (collection or bpy.context.collection).objects.link(obj)
     obj["mhblender_role"] = "metahuman_mesh"
+    obj["mhblender_mesh_role"] = "body"
     obj["mhblender_character"] = asset.character_name
     obj["mhblender_dna_mesh_index"] = spec.index
     obj["mhblender_lod"] = infer_lod_index(spec.name, spec.index)
@@ -42,7 +69,26 @@ def create_mesh_object(asset: DNAAsset, spec: MeshSpec, collection=None):
         obj.hide_render = True
     for channel_name in spec.blend_shape_channels:
         obj.shape_key_add(name=channel_name, from_mix=False)
+    reset_shape_key_values(obj)
     return obj
+
+
+def _apply_mesh_uvs(mesh_data, spec: MeshSpec) -> None:
+    if not spec.uvs or not spec.face_texture_coordinate_indices:
+        return
+    if len(spec.face_texture_coordinate_indices) != len(mesh_data.polygons):
+        return
+
+    uv_layer = mesh_data.uv_layers.new(name="UVMap")
+    for poly_index, poly in enumerate(mesh_data.polygons):
+        corner_indices = spec.face_texture_coordinate_indices[poly_index]
+        if len(corner_indices) != len(poly.loop_indices):
+            continue
+        for loop_index, texture_index in zip(poly.loop_indices, corner_indices):
+            if texture_index < 0 or texture_index >= len(spec.uvs):
+                continue
+            u, v = spec.uvs[texture_index]
+            uv_layer.data[loop_index].uv = dna_uv_to_blender(u, v)
 
 
 def bind_mesh_to_armature(mesh_object, armature_object, asset: DNAAsset | None = None, spec: MeshSpec | None = None) -> None:

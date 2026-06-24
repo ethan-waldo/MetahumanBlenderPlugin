@@ -8,14 +8,15 @@ def register():
 
     class MHB_OT_EvaluateFace(bpy.types.Operator):
         bl_idname = "mhblender.evaluate_face"
-        bl_label = "Evaluate Face Current Frame"
-        bl_description = "Experimental single-frame RigLogic evaluation placeholder"
+        bl_label = "Evaluate Face RigLogic"
+        bl_description = "Evaluate facial RigLogic from the Face Controls sliders for the current frame"
 
         def execute(self, context):
-            from ..riglogic.evaluator import FaceRigLogicEvaluator
+            from ..riglogic.evaluator import evaluate_face_for_context
 
-            evaluator = FaceRigLogicEvaluator.from_context(context)
-            result = evaluator.evaluate_current_frame()
+            result = evaluate_face_for_context(context)
+            settings = context.scene.metahuman_blender
+            settings.face_riglogic_last_error = "" if result.ok else result.message
             level = {"INFO"} if result.ok else {"ERROR"}
             self.report(level, result.message)
             return {"FINISHED"} if result.ok else {"CANCELLED"}

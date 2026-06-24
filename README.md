@@ -1,20 +1,24 @@
 # MetaHuman Blender
 
-Greenfield Blender add-on for importing MetaHuman DNA, preserving the original MetaHuman deform skeleton, building a stable Rigify-style animator control layer, and baking animation back to the MetaHuman skeleton for Unreal export.
+Greenfield Blender add-on for importing MetaHuman DNA, preserving the original MetaHuman deform skeleton, building a stable internal animator control layer, and baking animation back to the MetaHuman skeleton for Unreal export.
 
 ## Current milestone
 
-Implemented first-pass body workflow modules:
+Production-oriented body and facial workflow modules:
 
 - OpenRigLogic/DNA binding validation.
-- DNA metadata extraction for joints, meshes, controls, blend shape channel names, and mesh-channel mappings when available.
+- **ExportManifest.json** import as the primary DCC package entry point (body DNA, head DNA, texture metadata).
 - Original MetaHuman deform armature creation from DNA joint hierarchy.
 - Mesh object creation from DNA geometry when topology is exposed by the bindings.
-- Internal Rigify-style body control rig with stable `CTRL_*` control names.
+- Internal `CTRL_*` body control rig as the production default.
+- Optional experimental Rigify-generated control rig.
+- Internal limb IK targets with pole controls.
 - Constraint layer from control bones to original MetaHuman bones.
-- Optional body RigLogic evaluation layer that reads Rigify-driven MetaHuman bone rotations and applies OpenRigLogic corrective joint outputs to unconstrained corrective bones.
-- Visual bake back to the original MetaHuman skeleton.
-- Experimental placeholders for facial RigLogic and groom Alembic import/export.
+- Body RigLogic evaluation layer for corrective joint outputs.
+- Head DNA meshes with blend-shape delta geometry on shape keys (via manifest).
+- Faceboard UI bundled at `metahuman_blender/resources/faceboard.json` (shared `MHC_FaceBoard` for all characters).
+- Facial RigLogic evaluation from Faceboard GUI controls to joints and shape keys.
+- Visual bake back to the original MetaHuman skeleton with pre-bake validation.
 
 ## Install in Blender
 
@@ -24,11 +28,22 @@ Implemented first-pass body workflow modules:
 4. Press `Validate Setup`.
 5. Use `View3D > Sidebar > MetaHuman`.
 
+## Workflow: DCC export to Unreal
+
+1. Export a MetaHuman from Unreal with **Export > DCC Export**. The package contains `ExportManifest.json`, `body.dna`, `head.dna`, textures, and masks.
+2. **Import Export Manifest** and select `ExportManifest.json`.
+3. **Build Body Control Rig** using the default **Internal CTRL_*** control type.
+4. Faceboard setup runs automatically during manifest import. Use **Setup Faceboard** to rebuild it if needed.
+5. Animate body and face controls. Enable RigLogic toggles for live correctives if desired.
+6. Bake and export the baked `MH_<character>_SKEL` for Unreal re-import.
+
+The sidebar **Export Manifest** field is the single source of truth for DNA and texture paths. Individual body/head DNA fields are resolved from the manifest automatically.
+
 ## Important constraints
 
 The add-on does not replace the MetaHuman skeleton. `MH_<character>_SKEL` remains the deform/export skeleton. `CTRL_<character>_RIG` is only an animator-facing control layer, and final animation is baked back onto the original skeleton.
 
-Body RigLogic is available from the MetaHuman sidebar. Use `Evaluate Body RigLogic` for a manual current-pose update, or enable `Body RigLogic` for live updates while posing. The current layer applies joint corrective outputs; blend shape and animated-map outputs remain part of the later facial/material pass.
+Use the **Internal CTRL_*** control rig for production body animation. The Rigify path is experimental and may not evaluate correctly on Blender 5.2.
 
 ## Local OpenRigLogic build
 

@@ -92,6 +92,7 @@ RIGIFY_OUTPUT_MAP = {
     "spine_04": "DEF-spine.004",
     "spine_05": "DEF-spine.005",
     "neck_01": "DEF-spine.006",
+    "neck_02": "DEF-spine.006",
     "head": "head",
     "clavicle_l": "DEF-shoulder.L",
     "upperarm_l": "DEF-upper_arm.L",

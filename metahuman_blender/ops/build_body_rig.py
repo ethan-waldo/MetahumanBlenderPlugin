@@ -9,13 +9,14 @@ def register():
     class MHB_OT_BuildBodyRig(bpy.types.Operator):
         bl_idname = "mhblender.build_body_rig"
         bl_label = "Build Body Control Rig"
-        bl_description = "Create a Rigify-style control layer and constrain the MetaHuman skeleton to it"
+        bl_description = "Create an animator control layer and constrain the MetaHuman skeleton to it"
 
         def execute(self, context):
             from ..core.constraint_builder import apply_control_constraints
             from ..core.rig_mapping import infer_body_rig_map, rig_maps_to_json
             from ..rig.body_controls import create_body_control_rig
-            from ..rig.rigify_adapter import create_rigify_body_control_rig, rigify_available
+            from ..rig.ik_setup import setup_internal_ik
+            from ..rig.rigify_adapter import create_rigify_body_control_rig, rigify_available, use_internal_control_rig_reason
             from ..ui.properties import get_settings
 
             settings = get_settings(context)
@@ -28,18 +29,24 @@ def register():
             collection = skeleton.users_collection[0] if skeleton.users_collection else context.collection
             _remove_previous_control_rigs(skeleton)
 
-            if rigify_available():
+            use_rigify = settings.control_rig_type == "RIGIFY" and rigify_available()
+            if settings.control_rig_type == "RIGIFY" and not rigify_available():
+                self.report({"WARNING"}, "Rigify is not available; falling back to internal control rig.")
+
+            if use_rigify:
                 build = create_rigify_body_control_rig(skeleton, character_name, collection=collection)
                 control_rig = build.control_rig
                 maps = build.maps
                 missing = build.missing_targets
-                control_type = "Rigify"
+                control_type = "Rigify (experimental)"
             else:
                 control_rig = create_body_control_rig(skeleton, character_name, collection=collection)
+                setup_internal_ik(control_rig, skeleton)
                 report = infer_body_rig_map(skeleton, control_rig)
                 maps = report.maps
                 missing = report.missing_controls
                 control_type = "internal"
+                control_rig["mhblender_control_type"] = "internal"
 
             created = apply_control_constraints(skeleton, control_rig, maps)
 
@@ -53,6 +60,8 @@ def register():
             message = f"Built {control_type} rig {control_rig.name}; added {created} constraints"
             if missing:
                 message += f"; {len(missing)} targets were not mapped"
+            if not use_rigify:
+                message += f". {use_internal_control_rig_reason()}"
             self.report({"INFO"}, message)
             return {"FINISHED"}
 

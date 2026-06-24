@@ -104,6 +104,8 @@ def _read_meshes(reader: Any) -> list[MeshSpec]:
             name=str(_safe_call(reader, "getMeshName", mesh_index, default=f"mesh_{mesh_index:03d}")),
             vertices=_read_vertices(reader, mesh_index),
             faces=_read_faces(reader, mesh_index),
+            uvs=_read_texture_coordinates(reader, mesh_index),
+            face_texture_coordinate_indices=_read_face_texture_coordinate_indices(reader, mesh_index),
             skin_weights=_read_skin_weights(reader, mesh_index),
         )
         meshes.append(mesh)
@@ -125,6 +127,60 @@ def _read_vertices(reader: Any, mesh_index: int) -> list[Vector3]:
     for vertex_index in range(count):
         vertices.append(_vector3(_safe_call(reader, "getVertexPosition", mesh_index, vertex_index, default=(0.0, 0.0, 0.0))))
     return vertices
+
+
+def _read_texture_coordinates(reader: Any, mesh_index: int) -> list[tuple[float, float]]:
+    count = int(_safe_call(reader, "getVertexTextureCoordinateCount", mesh_index, default=0) or 0)
+    if count <= 0:
+        return []
+
+    us = _safe_call(reader, "getVertexTextureCoordinateUs", mesh_index, default=None)
+    vs = _safe_call(reader, "getVertexTextureCoordinateVs", mesh_index, default=None)
+    if us is not None and vs is not None:
+        return [(float(us[i]), float(vs[i])) for i in range(count)]
+
+    coordinates: list[tuple[float, float]] = []
+    for texture_index in range(count):
+        value = _safe_call(reader, "getVertexTextureCoordinate", mesh_index, texture_index, default=(0.0, 0.0))
+        if hasattr(value, "u") and hasattr(value, "v"):
+            coordinates.append((float(value.u), float(value.v)))
+        elif isinstance(value, (list, tuple)) and len(value) >= 2:
+            coordinates.append((float(value[0]), float(value[1])))
+        else:
+            coordinates.append((0.0, 0.0))
+    return coordinates
+
+
+def _read_face_texture_coordinate_indices(reader: Any, mesh_index: int) -> list[tuple[int, ...]]:
+    face_count = int(_safe_call(reader, "getFaceCount", mesh_index, default=0) or 0)
+    if face_count <= 0:
+        return []
+
+    faces: list[tuple[int, ...]] = []
+    for face_index in range(face_count):
+        layout_indices = _safe_call(reader, "getFaceVertexLayoutIndices", mesh_index, face_index, default=None)
+        if layout_indices is None:
+            continue
+        corner_indices: list[int] = []
+        for layout_index in layout_indices:
+            layout = _safe_call(reader, "getVertexLayout", mesh_index, int(layout_index), default=None)
+            texture_index = _texture_coordinate_index_from_layout(layout)
+            if texture_index is None:
+                continue
+            corner_indices.append(texture_index)
+        if len(corner_indices) >= 3:
+            faces.append(tuple(corner_indices))
+    return faces
+
+
+def _texture_coordinate_index_from_layout(layout: Any) -> int | None:
+    if layout is None:
+        return None
+    if isinstance(layout, (list, tuple)) and len(layout) >= 2:
+        return int(layout[1])
+    if hasattr(layout, "textureCoordinate"):
+        return int(layout.textureCoordinate)
+    return None
 
 
 def _read_faces(reader: Any, mesh_index: int) -> list[tuple[int, ...]]:

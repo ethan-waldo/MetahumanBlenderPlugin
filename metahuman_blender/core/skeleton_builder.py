@@ -58,6 +58,23 @@ def create_metahuman_armature(asset: DNAAsset, collection=None):
     return armature_object
 
 
+def hide_deform_skeleton_display(armature_object) -> None:
+    """Keep deformation active but hide the MetaHuman deform armature in the viewport."""
+    armature_object.hide_viewport = True
+    armature_object.hide_select = True
+    armature_object.show_in_front = False
+
+    armature_data = armature_object.data
+    armature_data.display_type = "WIRE"
+    for bone in armature_data.bones:
+        bone.hide = True
+        bone.hide_select = True
+
+    if hasattr(armature_data, "collections"):
+        for collection in armature_data.collections:
+            collection.is_visible = False
+
+
 def compute_joint_world_positions(joints: list[MetaHumanJoint]) -> dict[int, tuple[float, float, float]]:
     from mathutils import Euler, Matrix, Vector
 

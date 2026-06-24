@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from math import radians
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ from ..core.coordinate_system import dna_location_to_blender
 from ..core.dna_loader import _open_reader
 from ..ui.properties import _binding_paths_from_preferences
 
+LOGGER = logging.getLogger(__name__)
 EVALUATOR_CACHE: dict[tuple[str, tuple[str, ...]], "BodyRigLogicEvaluator"] = {}
 IS_EVALUATING = False
 
@@ -36,7 +38,10 @@ class BodyRigLogicEvaluator:
 
     @classmethod
     def from_context(cls, context, skeleton) -> "BodyRigLogicEvaluator":
-        dna_path = skeleton.get("mhblender_dna_path") or context.scene.metahuman_blender.dna_path
+        from ..core.character_import import resolve_character_paths
+
+        paths = resolve_character_paths(context.scene.metahuman_blender, skeleton)
+        dna_path = paths["body_dna_path"] or skeleton.get("mhblender_dna_path")
         binding_paths = _binding_paths_from_preferences(context)
         key = (str(dna_path), tuple(binding_paths))
         evaluator = EVALUATOR_CACHE.get(key)
@@ -115,9 +120,12 @@ def _evaluate_scene_if_enabled(scene) -> None:
     context = bpy.context
     try:
         IS_EVALUATING = True
-        evaluate_body_for_context(context)
-    except Exception:
-        pass
+        result = evaluate_body_for_context(context)
+        settings.body_riglogic_last_error = "" if result.ok else result.message
+    except Exception as exc:
+        message = f"Body RigLogic evaluation failed: {exc}"
+        LOGGER.warning(message, exc_info=True)
+        settings.body_riglogic_last_error = message
     finally:
         IS_EVALUATING = False
 
@@ -159,11 +167,15 @@ def _pose_delta_quaternion(skeleton, pose_bone):
     return delta.to_quaternion().normalized()
 
 
-def _apply_joint_outputs(reader, outputs, skeleton, skip_bones: set[str]) -> int:
+def _apply_joint_outputs(reader, outputs, skeleton, skip_bones: set[str], facial_only: bool = False) -> int:
     driven = 0
     for joint_index in range(reader.getJointCount()):
         bone_name = reader.getJointName(joint_index)
         if bone_name in skip_bones:
+            continue
+        if facial_only and not _is_facial_bone(bone_name):
+            continue
+        if not facial_only and _is_facial_bone(bone_name):
             continue
         pose_bone = skeleton.pose.bones.get(bone_name)
         if pose_bone is None:
@@ -171,11 +183,17 @@ def _apply_joint_outputs(reader, outputs, skeleton, skip_bones: set[str]) -> int
         base = joint_index * 9
         values = outputs[base : base + 9]
         if len(values) < 9 or max(abs(float(value)) for value in values) < 1.0e-7:
-            _clear_pose_delta(pose_bone)
+            if facial_only:
+                _clear_pose_delta(pose_bone)
             continue
         _apply_output_delta(pose_bone, values)
         driven += 1
     return driven
+
+
+def _is_facial_bone(name: str) -> bool:
+    lowered = name.lower()
+    return lowered.startswith("facial_") or lowered.startswith("teeth") or lowered.startswith("eye")
 
 
 def _clear_pose_delta(pose_bone) -> None:

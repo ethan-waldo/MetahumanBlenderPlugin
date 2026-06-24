@@ -13,12 +13,16 @@ def register():
 
         def execute(self, context):
             from ..riglogic.body_evaluator import evaluate_body_for_context
+            from ..ui.properties import get_settings
 
+            settings = get_settings(context)
             try:
                 result = evaluate_body_for_context(context)
             except Exception as exc:
+                settings.body_riglogic_last_error = str(exc)
                 self.report({"ERROR"}, str(exc))
                 return {"CANCELLED"}
+            settings.body_riglogic_last_error = "" if result.ok else result.message
             self.report({"INFO"} if result.ok else {"ERROR"}, result.message)
             return {"FINISHED"} if result.ok else {"CANCELLED"}
 

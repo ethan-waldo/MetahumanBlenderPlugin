@@ -24,6 +24,7 @@ class MeshSpec:
     vertices: list[Vector3] = field(default_factory=list)
     faces: list[tuple[int, ...]] = field(default_factory=list)
     uvs: list[tuple[float, float]] = field(default_factory=list)
+    face_texture_coordinate_indices: list[tuple[int, ...]] = field(default_factory=list)
     skin_weights: dict[int, list[tuple[int, float]]] = field(default_factory=dict)
     blend_shape_channels: list[str] = field(default_factory=list)
 
@@ -42,8 +43,15 @@ class DNAAsset:
 
     @property
     def character_name(self) -> str:
-        stem = self.path.stem if self.path else "Character"
-        return sanitize_name(stem)
+        return infer_character_name(self.path) if self.path else "Character"
+
+
+def infer_character_name(path: Path | str) -> str:
+    dna_path = Path(path)
+    stem = dna_path.stem.lower()
+    if stem in {"body", "head"} and dna_path.parent.name:
+        return sanitize_name(dna_path.parent.name)
+    return sanitize_name(dna_path.stem)
 
 
 @dataclass(slots=True)
@@ -71,6 +79,22 @@ class RigLogicState:
     rig_instance: Any
     lod: int = 0
     control_values: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class CharacterInstance:
+    character_name: str
+    export_manifest_path: str = ""
+    body_dna_path: str = ""
+    head_dna_path: str = ""
+    deform_skeleton: str = ""
+    body_control_rig: str = ""
+    faceboard_rig: str = ""
+    head_meshes: list[str] = field(default_factory=list)
+    body_meshes: list[str] = field(default_factory=list)
+    texture_maps: list[str] = field(default_factory=list)
+    texture_masks: list[str] = field(default_factory=list)
+    thumbnail_path: str = ""
 
 
 def sanitize_name(value: str) -> str:
