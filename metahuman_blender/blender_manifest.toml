@@ -1,0 +1,10 @@
+schema_version = "1.0.0"
+id = "metahuman_blender"
+version = "0.1.0"
+name = "MetaHuman Blender"
+tagline = "Import MetaHuman DNA and build a bakeable animator control layer"
+maintainer = "MetaHuman Blender Contributors"
+type = "add-on"
+blender_version_min = "4.2.0"
+license = ["SPDX:MIT"]
+tags = ["Animation", "Rigging", "Import-Export"]

@@ -1,0 +1,44 @@
+diff --git a/python/dna/CMakeLists.txt b/python/dna/CMakeLists.txt
+index dd67edf..02468e2 100644
+--- a/python/dna/CMakeLists.txt
++++ b/python/dna/CMakeLists.txt
+@@ -34,11 +34,16 @@ set_target_properties(${PYDNA} PROPERTIES
+     OUTPUT_NAME "${PYDNA}${PROJECT_VERSION_MAJOR}_${PROJECT_VERSION_MINOR}_${PROJECT_VERSION_PATCH}")
+ target_compile_definitions(${PYDNA} PRIVATE ${SWIG_COMPILE_DEFINITIONS})
+ target_include_directories(${PYDNA} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
++if(TARGET Python3::Module)
++    set(PYDNA_PYTHON_LINK_TARGET Python3::Module)
++else()
++    set(PYDNA_PYTHON_LINK_TARGET Python3::Python)
++endif()
+ target_link_libraries(${PYDNA}
+     PUBLIC
+         ${PYDNA_DEPENDENCIES}
+     PRIVATE
+-        Python3::Python)
++        ${PYDNA_PYTHON_LINK_TARGET})
+
+ set(component_name dna)  # Make sure py3dna and dna targets are under the same dna component name
+ get_property(wrapper_files TARGET ${PYDNA} PROPERTY SWIG_SUPPORT_FILES)
+diff --git a/python/riglogic/CMakeLists.txt b/python/riglogic/CMakeLists.txt
+index c8256db..8a2f1c5 100644
+--- a/python/riglogic/CMakeLists.txt
++++ b/python/riglogic/CMakeLists.txt
+@@ -40,11 +40,16 @@ set_target_properties(${PYRL} PROPERTIES
+     OUTPUT_NAME "${PYRL}${PROJECT_VERSION_MAJOR}_${PROJECT_VERSION_MINOR}_${PROJECT_VERSION_PATCH}")
+ target_compile_definitions(${PYRL} PRIVATE ${SWIG_COMPILE_DEFINITIONS})
+ target_include_directories(${PYRL} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
++if(TARGET Python3::Module)
++    set(PYRL_PYTHON_LINK_TARGET Python3::Module)
++else()
++    set(PYRL_PYTHON_LINK_TARGET Python3::Python)
++endif()
+ target_link_libraries(${PYRL}
+     PUBLIC
+         ${PYRL_DEPENDENCIES}
+     PRIVATE
+-        Python3::Python)
++        ${PYRL_PYTHON_LINK_TARGET})
+
+ set(component_name riglogic4)  # Make sure py3riglogic and riglogic4 targets are under the same riglogic4 component name
+ get_property(wrapper_files TARGET ${PYRL} PROPERTY SWIG_SUPPORT_FILES)
