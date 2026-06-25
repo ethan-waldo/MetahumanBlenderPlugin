@@ -1,6 +1,6 @@
 # MetaHuman Blender
 
-Greenfield Blender add-on for importing MetaHuman DNA, preserving the original MetaHuman deform skeleton, building a Rigify animator control layer, and baking animation back to the MetaHuman skeleton for Unreal export.
+Blender add-on for importing MetaHuman DNA, preserving the original MetaHuman deform skeleton, building a Rigify animator control layer, and baking animation back to the MetaHuman skeleton for Unreal export.
 
 ## Current milestone
 
