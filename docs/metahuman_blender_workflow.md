@@ -68,5 +68,5 @@ Per-file **Import Body DNA** and **Import Head DNA** operators remain under the 
 - **Face not updating:** import ExportManifest first, then link the Faceboard.
 - **Exploded or distorted head mesh:** re-import ExportManifest after updating the add-on. Head DNA joints (~800+ facial bones) are merged into the body skeleton before head meshes bind; older imports that skipped this step leave head weights pointing at missing bones. All corrective shape keys are also reset to 0 after import — if every shape key was at 1.0 the head looked like a jumbled ball of geometry.
 - **Pelvic spike or collapsed body:** usually the same skeleton mismatch; re-import from ExportManifest and rebuild the control rig.
-- **Control shapes clustered or overlapping:** reload the add-on, then **Build Body Control Rig** again. Only the main FK/IK controls are shown; twist and corrective bones stay hidden but still drive the skeleton.
+- **Control shapes clustered or overlapping:** reload the add-on, then **Build Body Control Rig** again. The generated Rigify controls should look like the normal Rigify human rig; twist and corrective bones stay hidden but still drive the skeleton.
 - **Faceboard not visible:** reload the add-on, then **Setup Faceboard** or re-import ExportManifest. The shared `MHC_FaceBoard` appears beside the character in the `MH_FaceBoard` collection.

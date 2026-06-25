@@ -19,6 +19,31 @@ def dna_rotation_to_blender_euler(value: Vector3) -> Vector3:
     return (radians(y), radians(-x), radians(z))
 
 
+def dna_basis_to_blender():
+    """Axis remap matching dna_location_to_blender for rotation matrices."""
+    from mathutils import Matrix
+
+    return Matrix(
+        (
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, -1.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+    )
+
+
+def dna_space_matrix_to_blender(matrix) -> object:
+    """Convert a joint world matrix from DNA space into Blender world space."""
+    from mathutils import Matrix, Vector
+
+    basis = dna_basis_to_blender().to_3x3()
+    rotation = basis @ matrix.to_3x3() @ basis.inverted()
+    converted = rotation.to_4x4()
+    converted.translation = Vector(dna_location_to_blender(tuple(matrix.translation)))
+    return converted
+
+
 def dna_uv_to_blender(u: float, v: float) -> tuple[float, float]:
     """Normalize DNA UVs into tile-local 0-1 space for DCC export textures.
 

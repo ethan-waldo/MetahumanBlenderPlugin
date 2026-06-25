@@ -29,6 +29,9 @@ BODY_BONE_TOKENS = (
     "ball",
 )
 
+# Driven by the Face Controls panel / face RigLogic, not the body control rig.
+BODY_CONTROL_EXCLUDED = {"head"}
+
 
 @dataclass(slots=True)
 class MappingReport:
@@ -48,6 +51,10 @@ def is_body_bone(name: str) -> bool:
     return lowered in BODY_BONE_EXACT or any(token in lowered for token in BODY_BONE_TOKENS)
 
 
+def is_body_control_bone(name: str) -> bool:
+    return is_body_bone(name) and name not in BODY_CONTROL_EXCLUDED
+
+
 def control_name_for_bone(mh_bone_name: str) -> str:
     return f"CTRL_{mh_bone_name}"
 
@@ -58,7 +65,7 @@ def infer_body_rig_map(mh_armature, control_armature) -> MappingReport:
     missing: list[str] = []
     skipped: list[str] = []
     for bone in mh_armature.data.bones:
-        if not is_body_bone(bone.name):
+        if not is_body_control_bone(bone.name):
             skipped.append(bone.name)
             continue
         control_name = control_name_for_bone(bone.name)

@@ -47,7 +47,7 @@ def setup_internal_ik(control_object, mh_armature) -> int:
     edit_bones = control_object.data.edit_bones
     root = edit_bones.get("CTRL_root_global")
     for chain in LIMB_CHAINS:
-        _ensure_pole_bone(edit_bones, mh_armature, root, chain)
+        _ensure_pole_bone(edit_bones, mh_armature, control_object, root, chain)
     bpy.ops.object.mode_set(mode="POSE")
 
     created = 0
@@ -56,27 +56,25 @@ def setup_internal_ik(control_object, mh_armature) -> int:
     return created
 
 
-def _ensure_pole_bone(edit_bones, mh_armature, root, chain: dict) -> None:
+def _ensure_pole_bone(edit_bones, mh_armature, control_object, root, chain: dict) -> None:
     mid_source = mh_armature.data.bones.get(chain["mid"])
     if mid_source is None or chain["pole"] in edit_bones:
         return
     mid_matrix = mh_armature.matrix_world @ mid_source.matrix_local
     mid_head = mid_matrix.translation
-    mid_y = mid_matrix.to_3x3() @ Vector((0.0, 1.0, 0.0))
-    if mid_y.length <= 1e-6:
-        mid_y = Vector((0.0, 0.0, 1.0))
-    else:
-        mid_y.normalize()
+    mid_axes = mid_matrix.to_3x3()
     side_sign = -1.0 if chain["side"] == "l" else 1.0
-    world_z = Vector((0.0, 0.0, 1.0))
-    pole_offset = mid_y.cross(world_z)
-    if pole_offset.length <= 1e-6:
-        pole_offset = Vector((1.0, 0.0, 0.0))
-    pole_offset.normalize()
-    pole_head = mid_head + pole_offset * 0.25 * side_sign
+    pole_dir = mid_axes @ Vector((1.0, 0.0, 0.0))
+    if pole_dir.length <= 1e-6:
+        pole_dir = mid_axes @ Vector((0.0, 0.0, 1.0))
+    if pole_dir.length <= 1e-6:
+        pole_dir = Vector((1.0, 0.0, 0.0))
+    pole_dir.normalize()
+    control_inverse = control_object.matrix_world.inverted()
+    pole_head = control_inverse @ (mid_head + pole_dir * 0.25 * side_sign)
     bone = edit_bones.new(chain["pole"])
     bone.head = pole_head
-    bone.tail = pole_head + world_z * 0.08
+    bone.tail = pole_head + (control_inverse.to_3x3() @ pole_dir) * 0.08
     bone.use_deform = False
     bone.parent = root
     bone.use_connect = False

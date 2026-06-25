@@ -75,6 +75,63 @@ def evaluate_body_for_context(context) -> BodyEvaluationResult:
     return evaluator.evaluate(skeleton)
 
 
+def body_corrective_bone_names(context, skeleton) -> set[str]:
+    names: set[str] = set()
+    try:
+        evaluator = BodyRigLogicEvaluator.from_context(context, skeleton)
+    except Exception:
+        evaluator = None
+
+    if evaluator is not None:
+        for joint_index in range(evaluator.reader.getJointCount()):
+            bone_name = evaluator.reader.getJointName(joint_index)
+            if bone_name in evaluator.consumed_bones or _is_facial_bone(bone_name):
+                continue
+            if _looks_like_body_corrective_name(bone_name) and skeleton.pose.bones.get(bone_name) is not None:
+                names.add(bone_name)
+
+    if names:
+        return names
+
+    for pose_bone in skeleton.pose.bones:
+        if _looks_like_body_corrective_name(pose_bone.name) and not _is_facial_bone(pose_bone.name):
+            names.add(pose_bone.name)
+    return names
+
+
+def set_body_corrective_bone_visibility(context, visible: bool) -> int:
+    import bpy
+
+    settings = context.scene.metahuman_blender
+    skeleton = bpy.data.objects.get(settings.deform_skeleton_name) if settings.deform_skeleton_name else None
+    if skeleton is None:
+        skeleton = next((obj for obj in bpy.data.objects if obj.get("mhblender_role") == "deform_skeleton"), None)
+    if skeleton is None or skeleton.type != "ARMATURE":
+        return 0
+
+    corrective_names = body_corrective_bone_names(context, skeleton)
+    if visible:
+        skeleton.hide_viewport = False
+        skeleton.hide_select = False
+        skeleton.show_in_front = True
+        skeleton.data.display_type = "WIRE"
+        _set_bone_collections_visible(skeleton, True)
+        for bone in skeleton.data.bones:
+            show_bone = bone.name in corrective_names
+            bone.hide = not show_bone
+            bone.hide_select = not show_bone
+    else:
+        for bone in skeleton.data.bones:
+            if bone.name in corrective_names:
+                bone.hide = True
+                bone.hide_select = True
+        skeleton.hide_viewport = True
+        skeleton.hide_select = True
+        skeleton.show_in_front = False
+        _set_bone_collections_visible(skeleton, False)
+    return len(corrective_names)
+
+
 def register_handlers() -> None:
     import bpy
 
@@ -142,7 +199,48 @@ def _build_raw_control_map(raw_names: list[str]) -> dict[str, dict[str, int]]:
     return mapping
 
 
+def _looks_like_body_corrective_name(name: str) -> bool:
+    lowered = name.lower()
+    tokens = (
+        "corrective",
+        "_bck",
+        "_fwd",
+        "_in_",
+        "_in.",
+        "_in_l",
+        "_in_r",
+        "_inn",
+        "_out",
+        "_inner",
+        "_outer",
+        "_bulge",
+        "_half",
+        "_dip",
+        "_pip",
+        "_mcp",
+        "_palm",
+        "_palmmid",
+        "_slide",
+        "kneeback",
+        "_knee",
+        "ankle_",
+    )
+    return any(token in lowered for token in tokens)
+
+
+def _set_bone_collections_visible(skeleton, visible: bool) -> None:
+    collections = getattr(skeleton.data, "collections", None)
+    if not collections:
+        return
+    for collection in collections:
+        collection.is_visible = visible
+
+
 def _set_raw_controls_from_pose(instance, raw_map: dict[str, dict[str, int]], skeleton) -> None:
+    for components in raw_map.values():
+        for component, index in components.items():
+            instance.setRawControl(index, 1.0 if component == "w" else 0.0)
+
     for bone_name, components in raw_map.items():
         pose_bone = skeleton.pose.bones.get(bone_name)
         if pose_bone is None:
@@ -183,8 +281,7 @@ def _apply_joint_outputs(reader, outputs, skeleton, skip_bones: set[str], facial
         base = joint_index * 9
         values = outputs[base : base + 9]
         if len(values) < 9 or max(abs(float(value)) for value in values) < 1.0e-7:
-            if facial_only:
-                _clear_pose_delta(pose_bone)
+            _clear_pose_delta(pose_bone)
             continue
         _apply_output_delta(pose_bone, values)
         driven += 1

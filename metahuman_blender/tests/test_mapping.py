@@ -4,6 +4,7 @@ from metahuman_blender.core.rig_mapping import (
     control_name_for_bone,
     infer_body_rig_map,
     is_body_bone,
+    is_body_control_bone,
     rig_maps_from_json,
     rig_maps_to_json,
 )
@@ -18,6 +19,11 @@ def test_body_bone_filter_skips_facial_bones():
     assert is_body_bone("spine_01")
     assert is_body_bone("upperarm_l")
     assert not is_body_bone("FACIAL_C_FacialRoot")
+
+
+def test_body_control_bone_excludes_head_for_face_panel():
+    assert is_body_control_bone("spine_01")
+    assert not is_body_control_bone("head")
 
 
 def test_infer_body_rig_map_matches_stable_control_names():

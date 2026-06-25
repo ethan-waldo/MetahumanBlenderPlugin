@@ -59,7 +59,7 @@ class RigMap:
     mh_bone: str
     control_bone: str
     constraint_type: str = "COPY_TRANSFORMS"
-    transform_space: str = "WORLD"
+    transform_space: str = "LOCAL"
     axis_remap: dict[str, str] = field(default_factory=dict)
     weight: float = 1.0
 

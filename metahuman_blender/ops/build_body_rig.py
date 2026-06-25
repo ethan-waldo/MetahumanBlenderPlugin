@@ -9,14 +9,12 @@ def register():
     class MHB_OT_BuildBodyRig(bpy.types.Operator):
         bl_idname = "mhblender.build_body_rig"
         bl_label = "Build Body Control Rig"
-        bl_description = "Create an animator control layer and constrain the MetaHuman skeleton to it"
+        bl_description = "Create a Rigify body control rig fitted to the MetaHuman skeleton (face uses Face Controls panel)"
 
         def execute(self, context):
-            from ..core.constraint_builder import apply_control_constraints
-            from ..core.rig_mapping import infer_body_rig_map, rig_maps_to_json
-            from ..rig.body_controls import create_body_control_rig
-            from ..rig.ik_setup import setup_internal_ik
-            from ..rig.rigify_adapter import create_rigify_body_control_rig, rigify_available, use_internal_control_rig_reason
+            from ..core.rig_mapping import rig_maps_to_json
+            from ..rig.rigify_adapter import create_rigify_body_control_rig, rigify_available
+            from ..rig.rigify_binding import apply_rigify_empty_bindings
             from ..ui.properties import get_settings
 
             settings = get_settings(context)
@@ -25,30 +23,34 @@ def register():
                 self.report({"ERROR"}, "Select or import a MetaHuman deform skeleton first.")
                 return {"CANCELLED"}
 
+            if not rigify_available():
+                self.report(
+                    {"ERROR"},
+                    "Rigify is required. Enable the Rigify add-on in Preferences > Add-ons.",
+                )
+                return {"CANCELLED"}
+
             character_name = settings.character_name or skeleton.name.removeprefix("MH_").removesuffix("_SKEL")
             collection = skeleton.users_collection[0] if skeleton.users_collection else context.collection
-            _remove_previous_control_rigs(skeleton)
+            _reorient_skeleton_from_dna(context, skeleton)
+            _remove_previous_control_rigs(skeleton, character_name)
 
-            use_rigify = settings.control_rig_type == "RIGIFY" and rigify_available()
-            if settings.control_rig_type == "RIGIFY" and not rigify_available():
-                self.report({"WARNING"}, "Rigify is not available; falling back to internal control rig.")
+            try:
+                result = create_rigify_body_control_rig(skeleton, character_name, collection=collection)
+            except Exception as exc:
+                self.report({"ERROR"}, f"Rigify body rig build failed: {exc}")
+                return {"CANCELLED"}
 
-            if use_rigify:
-                build = create_rigify_body_control_rig(skeleton, character_name, collection=collection)
-                control_rig = build.control_rig
-                maps = build.maps
-                missing = build.missing_targets
-                control_type = "Rigify (experimental)"
-            else:
-                control_rig = create_body_control_rig(skeleton, character_name, collection=collection)
-                setup_internal_ik(control_rig, skeleton)
-                report = infer_body_rig_map(skeleton, control_rig)
-                maps = report.maps
-                missing = report.missing_controls
-                control_type = "internal"
-                control_rig["mhblender_control_type"] = "internal"
-
-            created = apply_control_constraints(skeleton, control_rig, maps)
+            control_rig = result.control_rig
+            maps = result.maps
+            missing = result.missing_targets
+            created = apply_rigify_empty_bindings(
+                skeleton,
+                control_rig,
+                maps,
+                character_name,
+                collection=collection,
+            )
 
             settings.deform_skeleton_name = skeleton.name
             settings.control_rig_name = control_rig.name
@@ -56,12 +58,15 @@ def register():
             skeleton["mhblender_control_rig"] = control_rig.name
             control_rig["mhblender_deform_skeleton"] = skeleton.name
             control_rig["mhblender_missing_controls"] = ", ".join(missing)
+            control_rig["mhblender_constraint_count"] = created
+            control_rig["mhblender_binding_mode"] = "rigify_output_empty"
 
-            message = f"Built {control_type} rig {control_rig.name}; added {created} constraints"
+            _refresh_body_riglogic(context, skeleton)
+            _finalize_animation_setup(context, skeleton, control_rig)
+
+            message = f"Built Rigify body rig {control_rig.name}; bound {created} Rigify output bones via empties"
             if missing:
-                message += f"; {len(missing)} targets were not mapped"
-            if not use_rigify:
-                message += f". {use_internal_control_rig_reason()}"
+                message += f"; {len(missing)} Rigify output mappings missing"
             self.report({"INFO"}, message)
             return {"FINISHED"}
 
@@ -97,8 +102,30 @@ def _find_skeleton(context, preferred_name: str):
     return None
 
 
-def _remove_previous_control_rigs(skeleton) -> None:
+def _reorient_skeleton_from_dna(context, skeleton) -> None:
+    from ..core.character_import import resolve_character_paths
+    from ..core.dna_loader import load_dna
+    from ..core.skeleton_builder import reorient_metahuman_armature
+    from ..ui.properties import _binding_paths_from_preferences
+
+    settings = context.scene.metahuman_blender
+    paths = resolve_character_paths(settings, skeleton)
+    dna_path = paths.get("body_dna_path") or skeleton.get("mhblender_dna_path")
+    if not dna_path:
+        return
+
+    asset = load_dna(dna_path, _binding_paths_from_preferences(context))
+    reorient_metahuman_armature(skeleton, asset.joints)
+
+
+def _remove_previous_control_rigs(skeleton, character_name: str) -> None:
     import bpy
+
+    from ..core.constraint_builder import clear_metahuman_constraints
+    from ..rig.rigify_binding import remove_rigify_empty_bindings
+
+    clear_metahuman_constraints(skeleton)
+    remove_rigify_empty_bindings(character_name)
 
     names = set()
     stored_name = skeleton.get("mhblender_control_rig")
@@ -111,3 +138,40 @@ def _remove_previous_control_rigs(skeleton) -> None:
         obj = bpy.data.objects.get(name)
         if obj is not None:
             bpy.data.objects.remove(obj, do_unlink=True)
+
+
+def _finalize_animation_setup(context, skeleton, control_rig) -> None:
+    import bpy
+    from ..rig.rigify_adapter import apply_hand_curl_settings
+    from ..riglogic.body_evaluator import set_body_corrective_bone_visibility
+
+    skeleton.hide_viewport = True
+    skeleton.hide_select = True
+    control_rig.hide_viewport = False
+    control_rig.hide_select = False
+    control_rig.show_in_front = True
+    apply_hand_curl_settings(context)
+    if getattr(context.scene.metahuman_blender, "show_body_corrective_bones", False):
+        set_body_corrective_bone_visibility(context, True)
+
+    for obj in context.view_layer.objects:
+        obj.select_set(False)
+    control_rig.select_set(True)
+    context.view_layer.objects.active = control_rig
+    if bpy.ops.object.mode_set.poll():
+        bpy.ops.object.mode_set(mode="POSE")
+
+
+def _refresh_body_riglogic(context, skeleton) -> None:
+    from ..riglogic.body_evaluator import clear_cache, evaluate_body_for_context
+
+    settings = context.scene.metahuman_blender
+    clear_cache()
+    settings.body_riglogic_last_error = ""
+    if not getattr(settings, "enable_body_riglogic", False):
+        return
+    try:
+        result = evaluate_body_for_context(context)
+        settings.body_riglogic_last_error = "" if result.ok else result.message
+    except Exception as exc:
+        settings.body_riglogic_last_error = f"Body RigLogic evaluation failed: {exc}"

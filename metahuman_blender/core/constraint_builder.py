@@ -58,37 +58,105 @@ def mute_metahuman_constraints(mh_armature, mute: bool = True) -> int:
 
 
 def set_child_of_inverse(mh_armature, pose_bone, constraint) -> None:
+    if hasattr(constraint, "set_inverse_pending"):
+        constraint.set_inverse_pending = True
+        return
+    _set_child_of_inverse_with_operator(mh_armature, pose_bone, constraint)
+
+
+def set_child_of_inverse_on_object(empty_object, constraint) -> None:
+    if hasattr(constraint, "set_inverse_pending"):
+        constraint.set_inverse_pending = True
+        return
+    _set_child_of_inverse_on_object_with_operator(empty_object, constraint)
+
+
+def _set_child_of_inverse_with_operator(mh_armature, pose_bone, constraint) -> None:
     import bpy
 
     previous_active = bpy.context.view_layer.objects.active
     previous_selected = list(bpy.context.selected_objects)
     previous_mode = bpy.context.object.mode if bpy.context.object else "OBJECT"
+    previous_hide_viewport = mh_armature.hide_viewport
+    previous_hide_select = mh_armature.hide_select
 
-    if bpy.ops.object.mode_set.poll():
-        bpy.ops.object.mode_set(mode="OBJECT")
-    for obj in previous_selected:
-        obj.select_set(False)
-    mh_armature.select_set(True)
-    bpy.context.view_layer.objects.active = mh_armature
-    bpy.ops.object.mode_set(mode="POSE")
+    try:
+        mh_armature.hide_viewport = False
+        mh_armature.hide_select = False
 
-    for item in mh_armature.pose.bones:
-        if hasattr(item, "select"):
-            item.select = False
-    if hasattr(pose_bone, "select"):
-        pose_bone.select = True
-    mh_armature.data.bones.active = pose_bone.bone
-    bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner="BONE")
+        if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+            if bpy.ops.object.mode_set.poll():
+                bpy.ops.object.mode_set(mode="OBJECT")
 
-    bpy.ops.object.mode_set(mode="OBJECT")
-    mh_armature.select_set(False)
-    for obj in previous_selected:
-        if obj.name in bpy.data.objects:
-            obj.select_set(True)
-    if previous_active and previous_active.name in bpy.data.objects:
-        bpy.context.view_layer.objects.active = previous_active
-        if previous_mode != "OBJECT" and previous_active == bpy.context.view_layer.objects.active:
-            try:
-                bpy.ops.object.mode_set(mode=previous_mode)
-            except Exception:
-                pass
+        for obj in previous_selected:
+            obj.select_set(False)
+        mh_armature.select_set(True)
+        bpy.context.view_layer.objects.active = mh_armature
+
+        area = next((item for item in bpy.context.window.screen.areas if item.type == "VIEW_3D"), None)
+        if area is None:
+            raise RuntimeError("Setting Child Of inverse requires an open 3D View.")
+
+        region = next((item for item in area.regions if item.type == "WINDOW"), None)
+        space = next((item for item in area.spaces if item.type == "VIEW_3D"), None)
+        override_kwargs = {
+            "area": area,
+            "region": region,
+            "space_data": space,
+            "object": mh_armature,
+            "active_object": mh_armature,
+            "selected_objects": [mh_armature],
+        }
+
+        with bpy.context.temp_override(**override_kwargs):
+            bpy.ops.object.mode_set(mode="POSE")
+            for item in mh_armature.pose.bones:
+                if hasattr(item, "select"):
+                    item.select = False
+            if hasattr(pose_bone, "select"):
+                pose_bone.select = True
+            mh_armature.data.bones.active = pose_bone.bone
+            bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner="BONE")
+            bpy.ops.object.mode_set(mode="OBJECT")
+    finally:
+        mh_armature.hide_viewport = previous_hide_viewport
+        mh_armature.hide_select = previous_hide_select
+        mh_armature.select_set(False)
+        for obj in previous_selected:
+            if obj.name in bpy.data.objects:
+                obj.select_set(True)
+        if previous_active and previous_active.name in bpy.data.objects:
+            bpy.context.view_layer.objects.active = previous_active
+            if previous_mode != "OBJECT" and previous_active == bpy.context.view_layer.objects.active:
+                try:
+                    if bpy.ops.object.mode_set.poll():
+                        bpy.ops.object.mode_set(mode=previous_mode)
+                except Exception:
+                    pass
+
+
+def _set_child_of_inverse_on_object_with_operator(empty_object, constraint) -> None:
+    import bpy
+
+    previous_active = bpy.context.view_layer.objects.active
+    previous_selected = list(bpy.context.selected_objects)
+    try:
+        for obj in bpy.context.view_layer.objects:
+            obj.select_set(False)
+        empty_object.select_set(True)
+        bpy.context.view_layer.objects.active = empty_object
+
+        area = next((item for item in bpy.context.window.screen.areas if item.type == "VIEW_3D"), None)
+        if area is None:
+            raise RuntimeError("Setting Child Of inverse requires an open 3D View.")
+        region = next((item for item in area.regions if item.type == "WINDOW"), None)
+        space = next((item for item in area.spaces if item.type == "VIEW_3D"), None)
+        with bpy.context.temp_override(area=area, region=region, space_data=space, object=empty_object, active_object=empty_object):
+            bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner="OBJECT")
+    finally:
+        empty_object.select_set(False)
+        for obj in previous_selected:
+            if obj.name in bpy.data.objects:
+                obj.select_set(True)
+        if previous_active and previous_active.name in bpy.data.objects:
+            bpy.context.view_layer.objects.active = previous_active

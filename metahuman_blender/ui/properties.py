@@ -55,6 +55,18 @@ def _update_face_gui_value(self, context):
     on_face_gui_value_changed(self, context)
 
 
+def _update_body_corrective_visibility(self, context):
+    from ..riglogic.body_evaluator import set_body_corrective_bone_visibility
+
+    set_body_corrective_bone_visibility(context, self.show_body_corrective_bones)
+
+
+def _update_body_hand_curl(self, context):
+    from ..rig.rigify_adapter import apply_hand_curl_settings
+
+    apply_hand_curl_settings(context)
+
+
 class MHB_PG_FaceGuiControl(bpy.types.PropertyGroup):
     control_name: StringProperty(name="Control", default="")
     value: FloatProperty(
@@ -102,20 +114,27 @@ class MHB_PG_Settings(bpy.types.PropertyGroup):
     frame_end: IntProperty(name="End", default=30, min=-1048574, max=1048574)
     clear_constraints_after_bake: BoolProperty(name="Clear Constraints After Bake", default=False)
     current_lod: IntProperty(name="LOD", default=0, min=0, max=7, update=_update_lod_visibility)
-    control_rig_type: EnumProperty(
-        name="Control Rig Type",
-        description="Internal CTRL_* rig is the production default; Rigify is experimental on Blender 5.2",
-        items=(
-            ("INTERNAL", "Internal CTRL_*", "Stable 1:1 MetaHuman body control rig"),
-            ("RIGIFY", "Rigify (Experimental)", "Generated Rigify human rig; may not evaluate correctly"),
-        ),
-        default="INTERNAL",
-    )
     enable_body_riglogic: BoolProperty(
         name="Body RigLogic",
         description="Evaluate OpenRigLogic body corrective joint outputs while posing",
         default=True,
     )
+    show_body_corrective_bones: BoolProperty(
+        name="Show Corrective Bones",
+        description="Show the hidden MetaHuman body RigLogic corrective bones for debugging",
+        default=False,
+        update=_update_body_corrective_visibility,
+    )
+    body_thumb_curl_l: FloatProperty(name="Thumb L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_index_curl_l: FloatProperty(name="Index L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_middle_curl_l: FloatProperty(name="Middle L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_ring_curl_l: FloatProperty(name="Ring L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_pinky_curl_l: FloatProperty(name="Pinky L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_thumb_curl_r: FloatProperty(name="Thumb R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_index_curl_r: FloatProperty(name="Index R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_middle_curl_r: FloatProperty(name="Middle R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_ring_curl_r: FloatProperty(name="Ring R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
+    body_pinky_curl_r: FloatProperty(name="Pinky R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
     enable_face_riglogic: BoolProperty(
         name="Face RigLogic",
         description="Evaluate OpenRigLogic facial outputs from the Face Controls sliders",
