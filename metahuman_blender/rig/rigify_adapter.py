@@ -3,20 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..core.scene_model import RigMap
-from .control_orientation import mh_bone_head_world, mh_chain_end_world
-
-HAND_CURL_CONTROLS: tuple[tuple[str, str], ...] = (
-    ("body_thumb_curl_l", "thumb.01_master.L"),
-    ("body_index_curl_l", "f_index.01_master.L"),
-    ("body_middle_curl_l", "f_middle.01_master.L"),
-    ("body_ring_curl_l", "f_ring.01_master.L"),
-    ("body_pinky_curl_l", "f_pinky.01_master.L"),
-    ("body_thumb_curl_r", "thumb.01_master.R"),
-    ("body_index_curl_r", "f_index.01_master.R"),
-    ("body_middle_curl_r", "f_middle.01_master.R"),
-    ("body_ring_curl_r", "f_ring.01_master.R"),
-    ("body_pinky_curl_r", "f_pinky.01_master.R"),
+from .body_constants import (
+    RIGIFY_HIDDEN_COLLECTIONS,
+    RIGIFY_IK_FK_PAIRS,
+    RIGIFY_LIMB_ORG_BONES,
+    RIGIFY_LIMB_PARENTS,
+    RIGIFY_MAJOR_CONTROL_GROUPS,
+    RIGIFY_MINOR_CONTROL_GROUPS,
 )
+from .control_orientation import align_metarig_roll_from_mh, fit_metarig_bone_from_mh, mh_bone_head_world, mh_chain_end_world
 
 
 def rigify_available() -> bool:
@@ -109,6 +104,9 @@ def create_rigify_body_control_rig(mh_armature, character_name: str, collection=
     _strip_face_from_metarig(metarig)
 
     generated = _generate_rigify_rig(metarig)
+    _remove_org_copy_influence_drivers(generated)
+    for label in RIGIFY_LIMB_PARENTS:
+        _sync_limb_org_constraints(generated, label, True)
     generated.name = f"CTRL_{character_name}_RIG"
     generated.data.name = f"CTRL_{character_name}_RIG_Data"
     generated["mhblender_role"] = "control_rig"
@@ -117,7 +115,7 @@ def create_rigify_body_control_rig(mh_armature, character_name: str, collection=
     generated["mhblender_metarig"] = metarig.name
     _move_to_collection(generated, collection)
     _mark_generated_rig_non_export_deform(generated)
-    _initialize_finger_curve_properties(generated)
+    configure_rigify_control_collections(generated)
     visible_controls = _preserve_rigify_body_display(generated)
     generated["mhblender_visible_controls"] = len(visible_controls)
 
@@ -163,9 +161,8 @@ def _fit_metarig_to_metahuman(metarig, mh_armature) -> None:
     bpy.ops.object.mode_set(mode="EDIT")
 
     edit_bones = metarig.data.edit_bones
-    roll_refs = {bone.name: bone.z_axis.copy() for bone in edit_bones}
-    inverse = metarig.matrix_world.inverted_safe()
-    fitted_names: set[str] = set()
+    rigify_roll_refs = {bone.name: bone.z_axis.copy() for bone in edit_bones}
+    fitted: list[tuple[object, str, object]] = []
     for meta_name, (mh_head, mh_tail) in META_TO_MH.items():
         bone = edit_bones.get(meta_name)
         if bone is None:
@@ -181,35 +178,32 @@ def _fit_metarig_to_metahuman(metarig, mh_armature) -> None:
             tail_world = mh_armature.matrix_world @ source.tail_local
         if tail_world is None or (tail_world - head_world).length < 0.01:
             _, tail_world = mh_chain_end_world(mh_armature, mh_head)
-        bone.head = inverse @ head_world
-        bone.tail = inverse @ tail_world
+        if not fit_metarig_bone_from_mh(bone, mh_armature, mh_head, tail_world, metarig, meta_bone_name=meta_name):
+            inverse = metarig.matrix_world.inverted_safe()
+            bone.head = inverse @ head_world
+            bone.tail = inverse @ tail_world
         if bone.parent is not None and (bone.head - bone.parent.tail).length > 0.001:
             bone.head = bone.parent.tail.copy()
-        fitted_names.add(meta_name)
+        fitted.append((bone, mh_head, meta_name))
 
     _apply_limb_bend_hints(edit_bones)
-    _restore_metarig_rolls(edit_bones, roll_refs, fitted_names)
+    for bone, mh_head, meta_name in fitted:
+        if _preserve_rigify_roll(meta_name):
+            roll_ref = rigify_roll_refs.get(meta_name)
+            if roll_ref is not None:
+                bone.align_roll(roll_ref)
+        else:
+            align_metarig_roll_from_mh(bone, mh_armature, mh_head, metarig, meta_bone_name=meta_name)
+        if bone.parent is not None and (bone.head - bone.parent.tail).length > 0.001:
+            bone.head = bone.parent.tail.copy()
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
-def _restore_metarig_rolls(edit_bones, roll_refs: dict[str, object], fitted_names: set[str]) -> None:
-    from mathutils import Vector
-
-    fallbacks = (Vector((0.0, 0.0, 1.0)), Vector((0.0, 1.0, 0.0)), Vector((1.0, 0.0, 0.0)))
-    for name in fitted_names:
-        bone = edit_bones.get(name)
-        if bone is None:
-            continue
-        direction = bone.tail - bone.head
-        if direction.length <= 1.0e-6:
-            continue
-        direction.normalize()
-        reference = roll_refs.get(name)
-        if reference is None or reference.length <= 1.0e-6 or abs(direction.dot(reference.normalized())) > 0.98:
-            reference = next((axis for axis in fallbacks if abs(direction.dot(axis)) < 0.98), None)
-        if reference is None:
-            continue
-        bone.align_roll(reference)
+def _preserve_rigify_roll(meta_bone_name: str) -> bool:
+    return (
+        meta_bone_name.startswith(("hand.", "palm.", "f_index.", "f_middle.", "f_ring.", "f_pinky.", "thumb.", "toe."))
+        or meta_bone_name in {"hand.L", "hand.R", "toe.L", "toe.R"}
+    )
 
 
 def _apply_limb_bend_hints(edit_bones) -> None:
@@ -288,6 +282,27 @@ def _strip_face_from_metarig(metarig) -> None:
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def _remove_org_copy_influence_drivers(rig_object) -> int:
+    """Drop broken Rigify ORG influence drivers so FK/IK switching can work reliably."""
+    animation_data = getattr(rig_object, "animation_data", None)
+    if animation_data is None or animation_data.drivers is None:
+        return 0
+
+    removed = 0
+    for driver in list(animation_data.drivers):
+        if "ORG-" not in driver.data_path:
+            continue
+        if "Copy Transforms" not in driver.data_path:
+            continue
+        if not driver.data_path.endswith(".influence"):
+            continue
+        animation_data.drivers.remove(driver)
+        removed += 1
+    if removed:
+        rig_object["mhblender_removed_org_drivers"] = removed
+    return removed
+
+
 def _generate_rigify_rig(metarig):
     import bpy
 
@@ -316,48 +331,88 @@ def _mark_generated_rig_non_export_deform(rig_object) -> None:
     rig_object.show_in_front = True
 
 
-def _initialize_finger_curve_properties(rig_object) -> int:
-    initialized = 0
-    for _, name in HAND_CURL_CONTROLS:
-        pose_bone = rig_object.pose.bones.get(name)
-        if pose_bone is None:
-            continue
-        pose_bone["finger_curve"] = 0.0
-        pose_bone.scale.y = 1.0
-        try:
-            pose_bone.id_properties_ui("finger_curve").update(
-                min=0.0,
-                max=1.0,
-                soft_min=0.0,
-                soft_max=1.0,
-                description="Curl this finger from neutral to a relaxed fist",
-            )
-        except Exception:
-            pass
-        initialized += 1
-    rig_object["mhblender_finger_curve_controls"] = initialized
-    return initialized
-
-
-def apply_hand_curl_settings(context) -> int:
-    import bpy
-
-    settings = context.scene.metahuman_blender
-    rig = bpy.data.objects.get(settings.control_rig_name) if settings.control_rig_name else None
-    if rig is None or rig.type != "ARMATURE":
+def configure_rigify_control_collections(rig_object) -> int:
+    """Hide technical Rigify layers and default to major animator control groups."""
+    collections = getattr(rig_object.data, "collections", None)
+    if not collections:
         return 0
-    applied = 0
-    for setting_name, bone_name in HAND_CURL_CONTROLS:
-        pose_bone = rig.pose.bones.get(bone_name)
+
+    configured = 0
+    for collection in collections:
+        if collection.name in RIGIFY_HIDDEN_COLLECTIONS:
+            collection.is_visible = False
+            configured += 1
+
+    for _, names in RIGIFY_MAJOR_CONTROL_GROUPS:
+        configured += _set_collection_visibility(rig_object, names, True)
+
+    for _, names in RIGIFY_MINOR_CONTROL_GROUPS:
+        configured += _set_collection_visibility(rig_object, names, False)
+
+    rig_object["mhblender_limb_mode"] = "IK"
+    for label in RIGIFY_LIMB_PARENTS:
+        _sync_limb_org_constraints(rig_object, label, True)
+    return configured
+
+
+def get_limb_mode(rig_object, label: str) -> str:
+    parent_name = RIGIFY_LIMB_PARENTS.get(label)
+    if parent_name:
+        parent = rig_object.pose.bones.get(parent_name)
+        if parent is not None and "IK_FK" in parent:
+            return "IK" if float(parent["IK_FK"]) >= 0.5 else "FK"
+
+    ik_name, fk_name = _ik_fk_collection_names(label)
+    if ik_name is None or fk_name is None:
+        return "IK"
+    ik_visible = _collection_is_visible(rig_object, ik_name)
+    fk_visible = _collection_is_visible(rig_object, fk_name)
+    if fk_visible and not ik_visible:
+        return "FK"
+    return "IK"
+
+
+def set_limb_mode(rig_object, label: str, mode: str) -> bool:
+    use_ik = mode == "IK"
+    changed = False
+
+    parent_name = RIGIFY_LIMB_PARENTS.get(label)
+    if parent_name:
+        parent = rig_object.pose.bones.get(parent_name)
+        if parent is not None and "IK_FK" in parent:
+            target_value = 1.0 if use_ik else 0.0
+            if float(parent["IK_FK"]) != target_value:
+                parent["IK_FK"] = target_value
+                changed = True
+            changed |= _sync_limb_org_constraints(rig_object, label, use_ik)
+
+    ik_name, fk_name = _ik_fk_collection_names(label)
+    if ik_name is not None and fk_name is not None:
+        changed |= _set_collection_visibility(rig_object, (ik_name,), use_ik)
+        changed |= _set_collection_visibility(rig_object, (fk_name,), not use_ik)
+    return changed
+
+
+def _sync_limb_org_constraints(rig_object, label: str, use_ik: bool) -> bool:
+    """Switch ORG copy constraints between FK and IK targets."""
+    changed = 0
+    for org_name in RIGIFY_LIMB_ORG_BONES.get(label, ()):
+        pose_bone = rig_object.pose.bones.get(org_name)
         if pose_bone is None:
             continue
-        curl = max(0.0, min(1.0, float(getattr(settings, setting_name, 0.0))))
-        pose_bone["finger_curve"] = curl
-        pose_bone.scale.x = 1.0
-        pose_bone.scale.y = 1.0 - 0.5 * curl
-        pose_bone.scale.z = 1.0
-        applied += 1
-    return applied
+        for constraint in pose_bone.constraints:
+            if constraint.type != "COPY_TRANSFORMS":
+                continue
+            use_ik_source = constraint.name.endswith(".001")
+            target_influence = 1.0 if use_ik_source == use_ik else 0.0
+            if constraint.influence != target_influence:
+                constraint.influence = target_influence
+                changed += 1
+    return changed > 0
+
+
+def set_control_group_visibility(rig_object, group_names: tuple[str, ...], visible: bool) -> int:
+    return _set_collection_visibility(rig_object, group_names, visible)
 
 
 def _preserve_rigify_body_display(rig_object) -> set[str]:
@@ -377,6 +432,35 @@ def _bone_has_visible_collection(bone) -> bool:
     if not hasattr(bone, "collections") or not bone.collections:
         return True
     return any(collection.is_visible for collection in bone.collections)
+
+
+def _ik_fk_collection_names(label: str) -> tuple[str | None, str | None]:
+    for entry_label, ik_name, fk_name in RIGIFY_IK_FK_PAIRS:
+        if entry_label == label:
+            return ik_name, fk_name
+    return None, None
+
+
+def _collection_is_visible(rig_object, collection_name: str) -> bool:
+    collections = getattr(rig_object.data, "collections", None)
+    if not collections:
+        return False
+    collection = collections.get(collection_name)
+    return bool(collection and collection.is_visible)
+
+
+def _set_collection_visibility(rig_object, collection_names: tuple[str, ...], visible: bool) -> int:
+    collections = getattr(rig_object.data, "collections", None)
+    if not collections:
+        return 0
+    changed = 0
+    for name in collection_names:
+        collection = collections.get(name)
+        if collection is None or collection.is_visible == visible:
+            continue
+        collection.is_visible = visible
+        changed += 1
+    return changed
 
 
 def _move_to_collection(obj, collection) -> None:

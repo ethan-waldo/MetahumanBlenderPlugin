@@ -87,6 +87,37 @@ def test_zero_body_joint_output_clears_previous_corrective_pose():
     assert tuple(pose_bone.scale) == (1.0, 1.0, 1.0)
 
 
+def test_rigify_rotation_offset_conjugation_preserves_identity():
+    offset = Matrix.Rotation(3.14159, 3, "Y")
+    identity = Matrix.Identity(4).to_quaternion()
+    offset_quat = offset.to_quaternion().normalized()
+    result = (offset_quat @ identity @ offset_quat.inverted()).normalized()
+    assert abs(result.w - 1.0) < 1.0e-4
+    assert abs(result.x) < 1.0e-4
+    assert abs(result.y) < 1.0e-4
+    assert abs(result.z) < 1.0e-4
+
+
+def test_world_rotation_delta_is_identity_at_rest():
+    from metahuman_blender.riglogic.body_evaluator import _world_rotation_delta_quaternion
+
+    class _Bone:
+        def __init__(self, matrix):
+            self.matrix_local = matrix
+
+    class _PoseBone:
+        def __init__(self, matrix):
+            self.matrix = matrix
+            self.bone = _Bone(matrix.copy())
+
+    class _Armature:
+        matrix_world = Matrix.Identity(4)
+
+    pose = Matrix.Identity(4)
+    quat = _world_rotation_delta_quaternion(_Armature(), _PoseBone(pose))
+    assert abs(quat.w - 1.0) < 1.0e-4
+
+
 def test_body_corrective_name_filter_skips_primary_chain_bones():
     assert _looks_like_body_corrective_name("upperarm_correctiveRoot_l")
     assert _looks_like_body_corrective_name("thigh_out_l")

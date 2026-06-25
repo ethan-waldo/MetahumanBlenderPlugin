@@ -54,6 +54,8 @@ def _draw_body_rig_status(layout, settings):
 def _draw_body_rig_controls(layout, context):
     import bpy
 
+    from ..rig.body_constants import RIGIFY_MAJOR_CONTROL_GROUPS, RIGIFY_MINOR_CONTROL_GROUPS
+
     settings = context.scene.metahuman_blender
     control = bpy.data.objects.get(settings.control_rig_name) if settings.control_rig_name else None
     if control is None or control.type != "ARMATURE":
@@ -65,84 +67,64 @@ def _draw_body_rig_controls(layout, context):
     row.prop(control, "show_in_front", text="", icon="XRAY")
     row.prop(settings, "show_body_corrective_bones", text="", icon="BONE_DATA", toggle=True)
 
-    if hasattr(control.data, "collections"):
-        box = layout.box()
-        box.label(text="Control Sets", icon="GROUP_BONE")
-        for collection in control.data.collections:
-            if collection.name in {"ORG", "MCH", "DEF", "Face", "Face (Primary)", "Face (Secondary)"}:
-                continue
-            row = box.row(align=True)
-            row.prop(collection, "is_visible", text=collection.name, toggle=True)
+    if not hasattr(control.data, "collections"):
+        layout.label(text="Rebuild the body rig to enable grouped controls", icon="INFO")
+        return
 
     _draw_rigify_limb_switches(layout, control)
-    _draw_rigify_hand_curls(layout, context, control)
+    _draw_rigify_control_groups(layout, control, "Major Controls", RIGIFY_MAJOR_CONTROL_GROUPS)
+    _draw_rigify_control_groups(layout, control, "Minor Controls", RIGIFY_MINOR_CONTROL_GROUPS)
 
-    active = context.active_pose_bone if context.active_object == control else None
-    if active is None:
-        layout.label(text="Select a Rigify control to show its settings", icon="RESTRICT_SELECT_OFF")
-        return
 
-    custom_keys = [key for key in active.keys() if key != "_RNA_UI"]
-    if not custom_keys:
-        layout.label(text=f"Selected: {active.name}", icon="BONE_DATA")
-        return
-
+def _draw_rigify_control_groups(layout, control, title, groups) -> None:
     box = layout.box()
-    box.label(text=active.name, icon="BONE_DATA")
-    for key in custom_keys:
-        try:
-            box.prop(active, f'["{key}"]', text=key)
-        except Exception:
-            box.label(text=f"{key}: {active.get(key)}")
+    box.label(text=title, icon="GROUP_BONE")
+    column = box.column(align=True)
+    any_found = False
+    for label, collection_names in groups:
+        collections = getattr(control.data, "collections", None)
+        if collections is None:
+            continue
+        present = [collections.get(name) for name in collection_names if collections.get(name) is not None]
+        if not present:
+            continue
+        any_found = True
+        row = column.row(align=True)
+        row.label(text=label)
+        visible = all(item.is_visible for item in present)
+        toggle = row.operator(
+            "mhblender.toggle_rigify_control_group",
+            text="Hide" if visible else "Show",
+            depress=visible,
+        )
+        toggle.group_label = label
+        toggle.visible = not visible
+    if not any_found:
+        box.label(text="No grouped controls found on this rig", icon="INFO")
 
 
 def _draw_rigify_limb_switches(layout, control) -> None:
+    from ..rig.body_constants import RIGIFY_IK_FK_PAIRS, RIGIFY_LIMB_PARENTS
+    from ..rig.rigify_adapter import get_limb_mode
+
     box = layout.box()
-    box.label(text="IK/FK", icon="CON_ARMATURE")
-    items = (
-        ("Arm L", "upper_arm_parent.L"),
-        ("Arm R", "upper_arm_parent.R"),
-        ("Leg L", "thigh_parent.L"),
-        ("Leg R", "thigh_parent.R"),
-    )
+    box.label(text="IK / FK", icon="CON_ARMATURE")
     any_found = False
-    for label, bone_name in items:
-        pose_bone = control.pose.bones.get(bone_name)
-        if pose_bone is None or "IK_FK" not in pose_bone:
+    for label, _, _ in RIGIFY_IK_FK_PAIRS:
+        if label not in RIGIFY_LIMB_PARENTS:
             continue
         any_found = True
+        mode = get_limb_mode(control, label)
         row = box.row(align=True)
         row.label(text=label)
-        row.prop(pose_bone, '["IK_FK"]', text="")
-        if "IK_Stretch" in pose_bone:
-            row.prop(pose_bone, '["IK_Stretch"]', text="Stretch")
+        ik = row.operator("mhblender.set_rigify_limb_mode", text="IK", depress=mode == "IK")
+        ik.limb_label = label
+        ik.mode = "IK"
+        fk = row.operator("mhblender.set_rigify_limb_mode", text="FK", depress=mode == "FK")
+        fk.limb_label = label
+        fk.mode = "FK"
     if not any_found:
-        box.label(text="No Rigify IK/FK properties found", icon="INFO")
-
-
-def _draw_rigify_hand_curls(layout, context, control) -> None:
-    settings = context.scene.metahuman_blender
-    box = layout.box()
-    box.label(text="Hand Curls", icon="POSE_HLT")
-    fingers = (
-        ("Thumb", "body_thumb_curl"),
-        ("Index", "body_index_curl"),
-        ("Middle", "body_middle_curl"),
-        ("Ring", "body_ring_curl"),
-        ("Pinky", "body_pinky_curl"),
-    )
-    any_found = False
-    for side, suffix in (("L", "l"), ("R", "r")):
-        column = box.column(align=True)
-        column.label(text=f"Hand {side}")
-        for label, prefix in fingers:
-            prop_name = f"{prefix}_{suffix}"
-            if not hasattr(settings, prop_name):
-                continue
-            any_found = True
-            column.prop(settings, prop_name, text=label, slider=True)
-    if not any_found:
-        box.label(text="No Rigify finger curl controls found", icon="INFO")
+        box.label(text="No limb IK/FK controls found", icon="INFO")
 
 
 def register():
@@ -170,6 +152,56 @@ def register():
             control.select_set(True)
             context.view_layer.objects.active = control
             bpy.ops.object.mode_set(mode="POSE")
+            return {"FINISHED"}
+
+    class MHB_OT_SetRigifyLimbMode(bpy.types.Operator):
+        bl_idname = "mhblender.set_rigify_limb_mode"
+        bl_label = "Set Rigify Limb Mode"
+        bl_description = "Switch a limb between Rigify IK and FK control collections"
+
+        limb_label: bpy.props.StringProperty(name="Limb", default="")
+        mode: bpy.props.EnumProperty(name="Mode", items=(("IK", "IK", ""), ("FK", "FK", "")))
+
+        def execute(self, context):
+            from ..rig.rigify_adapter import set_limb_mode
+
+            settings = context.scene.metahuman_blender
+            control = bpy.data.objects.get(settings.control_rig_name) if settings.control_rig_name else None
+            if control is None:
+                self.report({"ERROR"}, "No Rigify body rig found.")
+                return {"CANCELLED"}
+            if not set_limb_mode(control, self.limb_label, self.mode):
+                self.report({"WARNING"}, f"Could not switch {self.limb_label} to {self.mode}.")
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
+    class MHB_OT_ToggleRigifyControlGroup(bpy.types.Operator):
+        bl_idname = "mhblender.toggle_rigify_control_group"
+        bl_label = "Toggle Rigify Control Group"
+        bl_description = "Show or hide a grouped set of Rigify animator controls"
+
+        group_label: bpy.props.StringProperty(name="Group", default="")
+        visible: bpy.props.BoolProperty(name="Visible", default=True)
+
+        def execute(self, context):
+            from ..rig.body_constants import RIGIFY_MAJOR_CONTROL_GROUPS, RIGIFY_MINOR_CONTROL_GROUPS
+            from ..rig.rigify_adapter import set_control_group_visibility
+
+            settings = context.scene.metahuman_blender
+            control = bpy.data.objects.get(settings.control_rig_name) if settings.control_rig_name else None
+            if control is None:
+                self.report({"ERROR"}, "No Rigify body rig found.")
+                return {"CANCELLED"}
+
+            group_names = None
+            for label, names in (*RIGIFY_MAJOR_CONTROL_GROUPS, *RIGIFY_MINOR_CONTROL_GROUPS):
+                if label == self.group_label:
+                    group_names = names
+                    break
+            if group_names is None:
+                self.report({"ERROR"}, f"Unknown control group: {self.group_label}")
+                return {"CANCELLED"}
+            set_control_group_visibility(control, group_names, self.visible)
             return {"FINISHED"}
 
     class MHB_PT_MainPanel(bpy.types.Panel):
@@ -282,6 +314,8 @@ def register():
     global classes
     classes = [
         MHB_OT_SelectBodyRig,
+        MHB_OT_SetRigifyLimbMode,
+        MHB_OT_ToggleRigifyControlGroup,
         MHB_PT_MainPanel,
         MHB_PT_BodyRigStatus,
         MHB_PT_BodyRigControls,

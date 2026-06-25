@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 # Preferred child joint for orienting a MetaHuman body bone along its anatomical chain.
 MH_PRIMARY_CHILD: dict[str, str] = {
@@ -42,6 +42,83 @@ _HELPER_BONE_TOKENS = (
 def is_helper_bone(name: str) -> bool:
     lowered = name.lower()
     return any(token in lowered for token in _HELPER_BONE_TOKENS)
+
+
+def mh_orientation_reference_bone(mh_armature, mh_bone_name: str) -> str:
+    """Return the MetaHuman bone whose rest orientation should drive Rigify fitting."""
+    if mh_armature is None or not mh_bone_name:
+        return mh_bone_name
+
+    if "_" in mh_bone_name:
+        prefix, side = mh_bone_name.rsplit("_", 1)
+        if side in {"l", "r"}:
+            corrective_name = f"{prefix}_correctiveRoot_{side}"
+            if mh_armature.data.bones.get(corrective_name) is not None:
+                return corrective_name
+
+    return mh_bone_name
+
+
+def align_metarig_roll_from_mh(
+    edit_bone,
+    mh_armature,
+    mh_bone_name: str,
+    metarig,
+    *,
+    meta_bone_name: str,
+) -> bool:
+    """Match metarig roll to the DNA skeleton bone's rest Z axis."""
+    del meta_bone_name
+    source = mh_armature.data.bones.get(mh_bone_name)
+    if source is None:
+        return False
+
+    chain = edit_bone.tail - edit_bone.head
+    if chain.length <= 1e-6:
+        return False
+
+    mh_matrix = mh_armature.matrix_world @ source.matrix_local
+    roll_world = mh_matrix.to_3x3() @ Vector((0.0, 0.0, 1.0))
+    y_axis = chain.normalized()
+    roll_world -= y_axis * y_axis.dot(roll_world)
+    if roll_world.length <= 1e-6:
+        return False
+
+    roll_axis = metarig.matrix_world.inverted_safe().to_3x3() @ roll_world
+    edit_bone.align_roll(roll_axis)
+    return True
+
+
+def fit_metarig_bone_from_mh(
+    edit_bone,
+    mh_armature,
+    mh_bone_name: str,
+    tail_world,
+    metarig,
+    *,
+    meta_bone_name: str,
+) -> bool:
+    """Position a metarig edit bone on the MetaHuman joint chain."""
+    source = mh_armature.data.bones.get(mh_bone_name)
+    if source is None:
+        return False
+
+    head_world = mh_armature.matrix_world @ source.head_local
+    if tail_world is None:
+        tail_world = mh_armature.matrix_world @ source.tail_local
+    if (tail_world - head_world).length <= 1e-6:
+        return False
+
+    inverse = metarig.matrix_world.inverted_safe()
+    edit_bone.head = inverse @ head_world
+    edit_bone.tail = inverse @ tail_world
+    return align_metarig_roll_from_mh(
+        edit_bone,
+        mh_armature,
+        mh_bone_name,
+        metarig,
+        meta_bone_name=meta_bone_name,
+    )
 
 
 def mh_bone_head_world(mh_armature, bone_name: str | None) -> Vector | None:

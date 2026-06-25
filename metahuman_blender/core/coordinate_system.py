@@ -44,6 +44,11 @@ def dna_space_matrix_to_blender(matrix) -> object:
     return converted
 
 
+def rest_rotation_bind_offset(target_rest_world, source_rest_world) -> object:
+    """Map a source rest-frame world rotation delta into a target rest frame."""
+    return target_rest_world.to_3x3() @ source_rest_world.to_3x3().inverted()
+
+
 def dna_uv_to_blender(u: float, v: float) -> tuple[float, float]:
     """Normalize DNA UVs into tile-local 0-1 space for DCC export textures.
 

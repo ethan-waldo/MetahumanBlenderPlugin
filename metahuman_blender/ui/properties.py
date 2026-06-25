@@ -61,12 +61,6 @@ def _update_body_corrective_visibility(self, context):
     set_body_corrective_bone_visibility(context, self.show_body_corrective_bones)
 
 
-def _update_body_hand_curl(self, context):
-    from ..rig.rigify_adapter import apply_hand_curl_settings
-
-    apply_hand_curl_settings(context)
-
-
 class MHB_PG_FaceGuiControl(bpy.types.PropertyGroup):
     control_name: StringProperty(name="Control", default="")
     value: FloatProperty(
@@ -125,16 +119,6 @@ class MHB_PG_Settings(bpy.types.PropertyGroup):
         default=False,
         update=_update_body_corrective_visibility,
     )
-    body_thumb_curl_l: FloatProperty(name="Thumb L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_index_curl_l: FloatProperty(name="Index L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_middle_curl_l: FloatProperty(name="Middle L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_ring_curl_l: FloatProperty(name="Ring L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_pinky_curl_l: FloatProperty(name="Pinky L", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_thumb_curl_r: FloatProperty(name="Thumb R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_index_curl_r: FloatProperty(name="Index R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_middle_curl_r: FloatProperty(name="Middle R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_ring_curl_r: FloatProperty(name="Ring R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
-    body_pinky_curl_r: FloatProperty(name="Pinky R", min=0.0, max=1.0, default=0.0, update=_update_body_hand_curl)
     enable_face_riglogic: BoolProperty(
         name="Face RigLogic",
         description="Evaluate OpenRigLogic facial outputs from the Face Controls sliders",

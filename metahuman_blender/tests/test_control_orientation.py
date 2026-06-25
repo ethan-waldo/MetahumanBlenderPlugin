@@ -1,4 +1,8 @@
-from metahuman_blender.rig.control_orientation import is_helper_bone, pick_primary_child_index
+from metahuman_blender.rig.control_orientation import (
+    is_helper_bone,
+    mh_orientation_reference_bone,
+    pick_primary_child_index,
+)
 
 
 class _Joint:
@@ -26,3 +30,17 @@ def test_pick_primary_child_index_prefers_anatomical_chain():
         2: (0.5, 0.0, -0.5),
     }
     assert pick_primary_child_index("upperarm_l", 0, children, joints, world_positions) == 2
+
+
+def test_mh_orientation_reference_prefers_corrective_root():
+    class _Data:
+        def __init__(self, names):
+            self.bones = {name: object() for name in names}
+
+    class _Armature:
+        def __init__(self, names):
+            self.data = _Data(names)
+
+    armature = _Armature({"upperarm_l", "upperarm_correctiveRoot_l"})
+    assert mh_orientation_reference_bone(armature, "upperarm_l") == "upperarm_correctiveRoot_l"
+    assert mh_orientation_reference_bone(armature, "spine_03") == "spine_03"

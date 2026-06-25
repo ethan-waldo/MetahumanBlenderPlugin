@@ -241,14 +241,57 @@ def _set_raw_controls_from_pose(instance, raw_map: dict[str, dict[str, int]], sk
         for component, index in components.items():
             instance.setRawControl(index, 1.0 if component == "w" else 0.0)
 
+    rigify_rig = _control_rig_for_sampling(skeleton)
     for bone_name, components in raw_map.items():
         pose_bone = skeleton.pose.bones.get(bone_name)
         if pose_bone is None:
             continue
-        quat = _pose_delta_quaternion(skeleton, pose_bone)
+        quat = _raw_control_quaternion(skeleton, pose_bone, rigify_rig)
         values = {"x": quat.x, "y": quat.y, "z": quat.z, "w": quat.w}
         for component, index in components.items():
             instance.setRawControl(index, float(values[component]))
+
+
+def _control_rig_for_sampling(skeleton):
+    from ..rig.rigify_binding import get_control_rig_for_skeleton, uses_rigify_empty_bindings
+
+    if not uses_rigify_empty_bindings(skeleton):
+        return None
+    return get_control_rig_for_skeleton(skeleton)
+
+
+def _raw_control_quaternion(skeleton, pose_bone, rigify_rig):
+    if rigify_rig is not None:
+        return _rigify_raw_control_quaternion(skeleton, pose_bone, rigify_rig)
+    return _pose_delta_quaternion(skeleton, pose_bone)
+
+
+def _rigify_raw_control_quaternion(skeleton, mh_pose_bone, rigify_rig):
+    from ..rig.rigify_binding import get_binding_empty, read_bind_rotation_offset
+
+    empty = get_binding_empty(mh_pose_bone.name)
+    if empty is None:
+        return _pose_delta_quaternion(skeleton, mh_pose_bone)
+
+    source_bone_name = empty.get("mhblender_source_bone")
+    def_pose_bone = rigify_rig.pose.bones.get(source_bone_name) if source_bone_name else None
+    if def_pose_bone is None:
+        return _pose_delta_quaternion(skeleton, mh_pose_bone)
+
+    rotation_offset = read_bind_rotation_offset(empty)
+    if rotation_offset is None:
+        return _pose_delta_quaternion(skeleton, mh_pose_bone)
+
+    # World-space delta matches the empty parented to DEF; parent-local deltas do not.
+    def_quat = _world_rotation_delta_quaternion(rigify_rig, def_pose_bone)
+    offset_quat = rotation_offset.to_quaternion().normalized()
+    return (offset_quat @ def_quat @ offset_quat.inverted()).normalized()
+
+
+def _world_rotation_delta_quaternion(armature, pose_bone):
+    rest = armature.matrix_world @ pose_bone.bone.matrix_local
+    pose = armature.matrix_world @ pose_bone.matrix
+    return (rest.inverted_safe() @ pose).to_quaternion().normalized()
 
 
 def _pose_delta_quaternion(skeleton, pose_bone):

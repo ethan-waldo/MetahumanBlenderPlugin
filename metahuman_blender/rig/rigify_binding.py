@@ -141,6 +141,51 @@ def binding_empty_name(mh_bone: str) -> str:
     return f"{CONSTRAINT_PREFIX}bind_{mh_bone}"
 
 
+def get_binding_empty(mh_bone: str):
+    import bpy
+
+    return bpy.data.objects.get(binding_empty_name(mh_bone))
+
+
+def get_control_rig_for_skeleton(mh_armature):
+    import bpy
+
+    control_name = mh_armature.get("mhblender_control_rig")
+    if control_name:
+        control = bpy.data.objects.get(control_name)
+        if control is not None and control.type == "ARMATURE":
+            return control
+    for obj in bpy.data.objects:
+        if obj.type != "ARMATURE":
+            continue
+        if obj.get("mhblender_role") == "control_rig" and obj.get("mhblender_deform_skeleton") == mh_armature.name:
+            return obj
+    return None
+
+
+def uses_rigify_empty_bindings(mh_armature) -> bool:
+    control = get_control_rig_for_skeleton(mh_armature)
+    return control is not None and control.get("mhblender_binding_mode") == "rigify_output_empty"
+
+
+def read_bind_rotation_offset(empty) -> object | None:
+    from mathutils import Matrix
+
+    values = empty.get("mhblender_rot_offset") if empty is not None else None
+    if not values or len(values) != 9:
+        return None
+    return Matrix((values[0:3], values[3:6], values[6:9]))
+
+
+def _compute_bind_rotation_offset(mh_armature, mh_bone, rigify_rig, source_bone) -> tuple[float, ...]:
+    from ..core.coordinate_system import rest_rotation_bind_offset
+
+    mh_rest = mh_armature.matrix_world @ mh_bone.matrix_local
+    def_rest = rigify_rig.matrix_world @ source_bone.matrix_local
+    rotation = rest_rotation_bind_offset(mh_rest, def_rest)
+    return tuple(float(value) for row in rotation for value in row)
+
+
 def apply_rigify_empty_bindings(
     mh_armature,
     rigify_rig,
@@ -172,6 +217,12 @@ def apply_rigify_empty_bindings(
         empty["mhblender_mh_bone"] = mapping.mh_bone
         empty["mhblender_source_bone"] = mapping.control_bone
         empty["mhblender_fk_bone"] = mapping.control_bone
+        empty["mhblender_rot_offset"] = _compute_bind_rotation_offset(
+            mh_armature,
+            mh_bone,
+            rigify_rig,
+            source_bone,
+        )
         constraint_collection.objects.link(empty)
 
         mh_rest = mh_armature.matrix_world @ mh_bone.matrix_local

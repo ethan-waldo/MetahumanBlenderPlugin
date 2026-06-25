@@ -99,6 +99,60 @@ RIGIFY_EXCLUDED_CONTROLS = {
     "breast.R",
 }
 
+RIGIFY_HIDDEN_COLLECTIONS = frozenset(
+    {
+        "ORG",
+        "MCH",
+        "DEF",
+        "Face",
+        "Face (Primary)",
+        "Face (Secondary)",
+    }
+)
+
+# Primary animator sets shown by default after build.
+RIGIFY_MAJOR_CONTROL_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Root", ("Root",)),
+    ("Torso", ("Torso", "Torso (Tweak)")),
+    ("Arms IK", ("Arm.L (IK)", "Arm.R (IK)")),
+    ("Legs IK", ("Leg.L (IK)", "Leg.R (IK)")),
+    ("Fingers", ("Fingers",)),
+)
+
+# Secondary sets hidden until expanded in the UI.
+RIGIFY_MINOR_CONTROL_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Arms FK", ("Arm.L (FK)", "Arm.R (FK)")),
+    ("Legs FK", ("Leg.L (FK)", "Leg.R (FK)")),
+    ("Arm Tweaks", ("Arm.L (Tweak)", "Arm.R (Tweak)")),
+    ("Leg Tweaks", ("Leg.L (Tweak)", "Leg.R (Tweak)")),
+    ("Finger Detail", ("Fingers (Detail)",)),
+)
+
+RIGIFY_IK_FK_PAIRS: tuple[tuple[str, str, str], ...] = (
+    ("Arm L", "Arm.L (IK)", "Arm.L (FK)"),
+    ("Arm R", "Arm.R (IK)", "Arm.R (FK)"),
+    ("Leg L", "Leg.L (IK)", "Leg.L (FK)"),
+    ("Leg R", "Leg.R (IK)", "Leg.R (FK)"),
+)
+
+RIGIFY_LIMB_PARENTS: dict[str, str] = {
+    "Arm L": "upper_arm_parent.L",
+    "Arm R": "upper_arm_parent.R",
+    "Leg L": "thigh_parent.L",
+    "Leg R": "thigh_parent.R",
+}
+
+RIGIFY_LIMB_ORG_BONES: dict[str, tuple[str, ...]] = {
+    "Arm L": ("ORG-upper_arm.L", "ORG-forearm.L", "ORG-hand.L"),
+    "Arm R": ("ORG-upper_arm.R", "ORG-forearm.R", "ORG-hand.R"),
+    "Leg L": ("ORG-thigh.L", "ORG-shin.L", "ORG-foot.L"),
+    "Leg R": ("ORG-thigh.R", "ORG-shin.R", "ORG-foot.R"),
+}
+
+
+def iter_rigify_control_group_collections(group: tuple[str, tuple[str, ...]]) -> tuple[str, ...]:
+    return group[1]
+
 
 def is_rigify_body_animator_bone(bone_name: str) -> bool:
     if bone_name.startswith(("DEF-", "ORG-", "MCH-", "WGT-")):

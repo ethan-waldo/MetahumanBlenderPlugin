@@ -142,15 +142,16 @@ def _remove_previous_control_rigs(skeleton, character_name: str) -> None:
 
 def _finalize_animation_setup(context, skeleton, control_rig) -> None:
     import bpy
-    from ..rig.rigify_adapter import apply_hand_curl_settings
+    from ..rig.rigify_adapter import configure_rigify_control_collections
     from ..riglogic.body_evaluator import set_body_corrective_bone_visibility
+
+    configure_rigify_control_collections(control_rig)
 
     skeleton.hide_viewport = True
     skeleton.hide_select = True
     control_rig.hide_viewport = False
     control_rig.hide_select = False
     control_rig.show_in_front = True
-    apply_hand_curl_settings(context)
     if getattr(context.scene.metahuman_blender, "show_body_corrective_bones", False):
         set_body_corrective_bone_visibility(context, True)
 
